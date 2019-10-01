@@ -18,8 +18,6 @@ import (
 	"github.com/icecave/honeycomb/src/docker"
 	"github.com/icecave/honeycomb/src/docker/health"
 	"github.com/icecave/honeycomb/src/frontend"
-	"github.com/icecave/honeycomb/src/frontend/cert"
-	"github.com/icecave/honeycomb/src/frontend/cert/generator"
 	"github.com/icecave/honeycomb/src/proxy"
 	"github.com/icecave/honeycomb/src/proxyprotocol"
 	"github.com/icecave/honeycomb/src/static"
@@ -68,24 +66,17 @@ func main() {
 		logger.Fatalln(err)
 	}
 
-	secondaryCertProvider, err := secondaryCertificateProvider(
+	rootCACertPool := rootCAPool(config, logger)
+
+	resolver := certificateResolver(
 		config,
+		cachingLocator,
 		defaultCertificate.PrivateKey.(*rsa.PrivateKey),
 		logger,
 	)
-	if err != nil {
-		logger.Fatalln(err)
-	}
-
-	providerAdaptor := &cert.ProviderAdaptor{
-		PrimaryProvider:   primaryCertificateProvider(config, logger),
-		SecondaryProvider: secondaryCertProvider,
-	}
-
-	rootCACertPool := rootCAPool(config, logger)
 
 	tlsConfig := &tls.Config{
-		GetCertificate: providerAdaptor.GetCertificate,
+		GetCertificate: resolver.GetCertificate,
 		Certificates:   []tls.Certificate{*defaultCertificate},
 		RootCAs:        rootCACertPool,
 	}
@@ -199,46 +190,6 @@ func loadDefaultCertificate(config *cmd.Config) (*tls.Certificate, error) {
 	}
 	cert.Certificate = append(cert.Certificate, issuer.Certificate...)
 	return &cert, err
-}
-
-func primaryCertificateProvider(
-	config *cmd.Config,
-	logger *log.Logger,
-) cert.Provider {
-	return &cert.FileProvider{
-		BasePath: config.Certificates.BasePath,
-		Logger:   logger,
-	}
-}
-
-func secondaryCertificateProvider(
-	config *cmd.Config,
-	serverKey *rsa.PrivateKey,
-	logger *log.Logger,
-) (cert.Provider, error) {
-	issuer, err := tls.LoadX509KeyPair(
-		path.Join(config.Certificates.BasePath, config.Certificates.IssuerCertificate),
-		path.Join(config.Certificates.BasePath, config.Certificates.IssuerKey),
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	x509Cert, err := x509.ParseCertificate(issuer.Certificate[0])
-	if err != nil {
-		return nil, err
-	}
-
-	issuer.Leaf = x509Cert
-
-	return &cert.AdhocProvider{
-		Generator: &generator.IssuerSignedGenerator{
-			IssuerCertificate: issuer.Leaf,
-			IssuerKey:         issuer.PrivateKey.(*rsa.PrivateKey),
-			ServerKey:         serverKey,
-		},
-		Logger: logger,
-	}, nil
 }
 
 func prepareTLSConfig(config *tls.Config) {

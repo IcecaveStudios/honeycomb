@@ -1,21 +1,30 @@
 package cert
 
 import (
-	"context"
 	"crypto/tls"
 
 	"github.com/icecave/honeycomb/src/name"
 )
 
-// Provider fetches or creates TLS certificates for incoming HTTPS requests.
+// Provider is an interface for obtaining certificates for server names.
 type Provider interface {
-	// GetCertificate attempts to fetch an existing certificate for the given
-	// server name. If no such certificate exists, it generates one.
-	GetCertificate(context.Context, name.ServerName) (*tls.Certificate, error)
+	// GetCertificate returns the server certificate for a specific server name,
+	// if available.
+	GetCertificate(name.ServerName, *tls.ClientHelloInfo) (ProviderResult, bool)
 
-	// GetExistingCertificate attempts to fetch an existing certificate for the
-	// given server name. It never generates new certificates. A non-nil error
-	// indicates an error with the provider itself; otherwise, a nil certificate
-	// indicates a failure to find an existing certificate.
-	GetExistingCertificate(context.Context, name.ServerName) (*tls.Certificate, error)
+	// IsValid returns true a cached provider result should still be considered
+	// valid.
+	//
+	// The behavior is undefined if the result was not obtained from this
+	// provider.
+	IsValid(ProviderResult) bool
+}
+
+// ProviderResult is the result of asking a provider for a certificate.
+type ProviderResult struct {
+	// Certificate is the certificate itself.
+	Certificate *tls.Certificate
+
+	// ExcludeFromCache is true if this result should never be cached.
+	ExcludeFromCache bool
 }
